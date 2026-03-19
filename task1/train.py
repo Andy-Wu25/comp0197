@@ -140,7 +140,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer,
-                num_epochs, device, scheduler=None):
+                num_epochs, device):
     """Full training loop with per-epoch validation logging.
 
     Args:
@@ -151,9 +151,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         optimizer    (torch.optim.Optimizer): Optimizer.
         num_epochs   (int):                  Number of epochs.
         device       (torch.device):         Computation device.
-        scheduler    (optional):             Learning rate scheduler.
-                                             Step called after each epoch.
-                                             Default: None.
 
     Returns:
         dict: Keys 'train_loss', 'train_acc', 'val_loss', 'val_acc',
@@ -165,9 +162,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         tr_loss, tr_acc = train_one_epoch(
             model, train_loader, criterion, optimizer, device)
         va_loss, va_acc = evaluate(model, val_loader, criterion, device)
-
-        if scheduler is not None:
-            scheduler.step()
 
         history['train_loss'].append(tr_loss)
         history['train_acc'].append(tr_acc)
@@ -211,23 +205,42 @@ def main():
     print(f"Epochs: {num_epochs}  Batch: {batch_size}  LR: {lr}  Momentum: {momentum}\n")
 
     # ── data ─────────────────────────────────────────────────────────────────
-    transform = transforms.Compose([
+    eval_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465),
+                             (0.2470, 0.2435, 0.2616)),
+    ])
+
+    # Data augmentation for regularized model (Lecture 4, Lecture 6 "no harm tricks")
+    aug_transform = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465),
                              (0.2470, 0.2435, 0.2616)),
     ])
 
     full_train = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform)
-    test_data  = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform)
+        root='./data', train=True, download=True, transform=eval_transform)
+    full_train_aug = torchvision.datasets.CIFAR10(
+        root='./data', train=True, download=False, transform=aug_transform)
+    test_data = torchvision.datasets.CIFAR10(
+        root='./data', train=False, download=True, transform=eval_transform)
 
-    train_set, val_set = torch.utils.data.random_split(
-        full_train, [45000, 5000],
-        generator=torch.Generator().manual_seed(42))
+    # Same split indices for both augmented and non-augmented datasets
+    gen = torch.Generator().manual_seed(42)
+    indices = torch.randperm(len(full_train), generator=gen).tolist()
+    train_indices = indices[:45000]
+    val_indices = indices[45000:]
+
+    train_set = torch.utils.data.Subset(full_train, train_indices)
+    train_set_aug = torch.utils.data.Subset(full_train_aug, train_indices)
+    val_set = torch.utils.data.Subset(full_train, val_indices)
 
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=batch_size, shuffle=True)
+    train_loader_aug = torch.utils.data.DataLoader(
+        train_set_aug, batch_size=batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(
         val_set, batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
@@ -256,9 +269,9 @@ def main():
     torch.save(baseline.state_dict(), 'baseline_model.pth')
     print("  -> Saved baseline_model.pth\n")
 
-    # ── regularized model (BatchNorm + Dropout + L2 weight decay) ───────────
+    # ── regularized model (data augmentation + BatchNorm + Dropout + weight decay)
     print("=" * 70)
-    print("REGULARIZED MODEL  (BatchNorm + Dropout p=0.3 + WD 1e-3)")
+    print("REGULARIZED MODEL  (Augmentation + BatchNorm + Dropout p=0.3 + WD 1e-3)")
     print("=" * 70)
     torch.manual_seed(42)
     reg_model = DeepNetwork(input_dim, num_classes, hidden_dims,
@@ -271,7 +284,7 @@ def main():
         reg_model.parameters(), lr=lr, momentum=momentum, weight_decay=1e-3)
 
     reg_hist = train_model(
-        reg_model, train_loader, val_loader, criterion, reg_optim,
+        reg_model, train_loader_aug, val_loader, criterion, reg_optim,
         num_epochs, device)
 
     _, reg_test = evaluate(reg_model, test_loader, criterion, device)
@@ -288,14 +301,15 @@ def main():
         'baseline_param_count': bl_param_count,
         'reg_param_count':      reg_param_count,
         'config': {
-            'num_epochs':    num_epochs,
-            'batch_size':    batch_size,
-            'lr':            lr,
-            'momentum':      momentum,
-            'hidden_dims':   hidden_dims,
-            'dropout_rate':  0.3,
-            'weight_decay':  1e-3,
-            'use_batchnorm': True,
+            'num_epochs':      num_epochs,
+            'batch_size':      batch_size,
+            'lr':              lr,
+            'momentum':        momentum,
+            'hidden_dims':     hidden_dims,
+            'dropout_rate':    0.3,
+            'weight_decay':    1e-3,
+            'use_batchnorm':   True,
+            'use_augmentation': True,
         },
     }
     with open('training_history.json', 'w') as f:

@@ -169,8 +169,9 @@ def print_technical_analysis(history):
     """Print ~500-word technical analysis of the generalization gap.
 
     Discusses the observed gap, implicit regularization through optimizer
-    choice, explicit regularization techniques (BatchNorm, Dropout, weight
-    decay), hyperparameter justification, and the bias-variance trade-off.
+    choice, explicit regularization techniques (data augmentation, BatchNorm,
+    Dropout, weight decay), hyperparameter justification, and the bias-variance
+    trade-off.
     All claims are grounded in COMP0197 lecture material.
 
     Args:
@@ -212,7 +213,8 @@ but the resulting capacity also enables severe overfitting when unconstrained,
 placing the baseline firmly in the high-variance regime (Lecture 4).
 
 The regularized model ({nparams_rg:,} parameters including BatchNorm) employing
-BatchNorm, Dropout (p=0.3), and L2 weight decay (lambda=1e-3) achieves
+data augmentation, BatchNorm, Dropout (p=0.3), and L2 weight decay (lambda=1e-3)
+achieves
 {rg_tr:.1%} training / {rg_va:.1%} validation accuracy
 (gap = {rg_gap:.1%}). Test-set results: baseline {bl_te:.1%} vs regularized
 {rg_te:.1%}. We maintain strict train/validation/test separation to avoid data
@@ -230,6 +232,12 @@ preserving stochastic exploration. Even the baseline benefits; full-batch
 gradient descent would overfit more severely.
 
 3. EXPLICIT REGULARIZATION TECHNIQUES
+
+Data Augmentation (Lecture 4, Lecture 6 "no harm tricks"): The regularized model
+trains on augmented images using RandomCrop (padding=4) and RandomHorizontalFlip.
+These expand the effective training set by synthesising translated and reflected
+copies, reducing variance without increasing model complexity. The baseline trains
+on the original images only, so the gap quantifies augmentation's contribution.
 
 BatchNorm (Lecture 4, slides 17-18): Normalises each hidden layer's activations
 to zero mean and unit variance within each mini-batch, then applies a learnable
@@ -260,9 +268,9 @@ network retains all features at reduced magnitude.
 5. BIAS-VARIANCE TRADE-OFF
 
 The baseline operates in the low-bias, high-variance regime: it fits training
-data well but generalises poorly (Lecture 4). BatchNorm, Dropout, and weight
-decay constrain effective capacity, shifting toward higher bias and substantially
-lower variance. The validation improvement ({rg_va:.1%} vs {bl_va:.1%}) confirms
+data well but generalises poorly (Lecture 4). Data augmentation, BatchNorm,
+Dropout, and weight decay constrain effective capacity, shifting toward higher
+bias and substantially lower variance. The validation improvement ({rg_va:.1%} vs {bl_va:.1%}) confirms
 that variance reduction outweighs the bias increase, yielding a more favourable
 total error at the optimal operating point on the bias-variance curve.
 
@@ -318,7 +326,7 @@ def main():
     baseline.to(device)
     _, bl_test = evaluate(baseline, test_loader, criterion, device)
 
-    # regularized (BatchNorm + Dropout)
+    # regularized (data augmentation + BatchNorm + Dropout)
     regularized = DeepNetwork(
         input_dim, num_classes, cfg['hidden_dims'],
         dropout_rate=cfg['dropout_rate'],
