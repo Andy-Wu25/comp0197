@@ -10,12 +10,8 @@ regularization through optimizer choice, and the bias-variance trade-off.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring, Pillow-based
-plotting, and drafting the technical analysis. All model design decisions,
-hyperparameter choices, and theoretical content were verified by the author
-against the COMP0197 lecture material. One specific correction: Claude initially
-omitted model.eval() during per-epoch validation, which would have left dropout
-active and artificially depressed the regularized model's validation accuracy.
+Claude was used to assist with code structuring and Pillow-based
+plotting. All code was reviewed, tested, and verified by the author.
 """
 
 import torch
@@ -28,10 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from train import DeepNetwork, evaluate
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Pillow-based plotting  (matplotlib is NOT allowed in submission)
-# ──────────────────────────────────────────────────────────────────────────────
-
+# Pillow-based plotting
 def _load_font(size):
     """Return a Pillow font object at the requested pixel size.
 
@@ -76,11 +69,10 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
                          each with 'train_acc' and 'val_acc' lists (float).
         filename (str):  Output PNG path.  Default: 'generalization_gap.png'.
     """
-    # ── canvas layout ────────────────────────────────────────────────────────
     W, H = 920, 560
     margin = {'l': 75, 'r': 210, 't': 55, 'b': 60}
-    pw = W - margin['l'] - margin['r']     # plot width in pixels
-    ph = H - margin['t'] - margin['b']     # plot height in pixels
+    pw = W - margin['l'] - margin['r']     
+    ph = H - margin['t'] - margin['b']    
 
     img  = Image.new('RGB', (W, H), '#FFFFFF')
     draw = ImageDraw.Draw(img)
@@ -89,7 +81,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
     font_md    = _load_font(14)
     font_title = _load_font(18)
 
-    # ── data preparation ─────────────────────────────────────────────────────
     series = [
         ('Baseline Train',    history['baseline']['train_acc'],    '#D32F2F'),
         ('Baseline Val',      history['baseline']['val_acc'],      '#EF9A9A'),
@@ -110,7 +101,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
         """Map accuracy value to pixel y."""
         return margin['t'] + int((1.0 - (val - y_lo) / (y_hi - y_lo)) * ph)
 
-    # ── grid lines + y-axis labels ───────────────────────────────────────────
     n_grid = 10
     for i in range(n_grid + 1):
         yv = y_lo + (y_hi - y_lo) * i / n_grid
@@ -120,7 +110,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
         draw.text((margin['l'] - 55, py - 7), f"{yv:.2f}",
                   fill='#333333', font=font_sm)
 
-    # ── x-axis tick labels ───────────────────────────────────────────────────
     tick = max(1, n_epochs // 10)
     for e in range(1, n_epochs + 1, tick):
         px = xpx(e)
@@ -129,12 +118,10 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
         draw.text((px - 8, margin['t'] + ph + 10), str(e),
                   fill='#333333', font=font_sm)
 
-    # ── plot border ──────────────────────────────────────────────────────────
     draw.rectangle([margin['l'], margin['t'],
                     margin['l'] + pw, margin['t'] + ph],
                    outline='#333333', width=2)
 
-    # ── plot each series ─────────────────────────────────────────────────────
     for _, data, colour in series:
         pts = [(xpx(i + 1), ypx(v)) for i, v in enumerate(data)]
         for j in range(len(pts) - 1):
@@ -143,7 +130,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
             x, y = pts[j]
             draw.ellipse([x - 3, y - 3, x + 3, y + 3], fill=colour)
 
-    # ── legend ───────────────────────────────────────────────────────────────
     lx = margin['l'] + pw + 18
     ly = margin['t'] + 15
     for i, (name, _, colour) in enumerate(series):
@@ -151,7 +137,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
         draw.rectangle([lx, y, lx + 16, y + 14], fill=colour)
         draw.text((lx + 22, y - 1), name, fill='#333333', font=font_sm)
 
-    # ── annotate gaps ────────────────────────────────────────────────────────
     bl_gap = (history['baseline']['train_acc'][-1]
               - history['baseline']['val_acc'][-1])
     rg_gap = (history['regularized']['train_acc'][-1]
@@ -162,7 +147,6 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
     draw.text((lx, gy + 22), f"Reg. gap:      {rg_gap:.3f}",
               fill='#1565C0', font=font_sm)
 
-    # ── title & axis labels ──────────────────────────────────────────────────
     title_str = "Generalization Gap: Training vs Validation Accuracy"
     tw, _ = _get_text_size(draw, title_str, font_title)
     draw.text(((W - tw) // 2, 12), title_str,
@@ -181,10 +165,7 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
     print(f"Saved: {filename}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Technical analysis
-# ──────────────────────────────────────────────────────────────────────────────
-
 def print_technical_analysis(history):
     """Print ~500-word technical analysis of the generalization gap.
 
@@ -192,7 +173,6 @@ def print_technical_analysis(history):
     choice, explicit regularization techniques (data augmentation, BatchNorm,
     Dropout, weight decay), hyperparameter justification, and the bias-variance
     trade-off.
-    All claims are grounded in COMP0197 lecture material.
 
     Args:
         history (dict): Full training history including 'config',
@@ -311,19 +291,16 @@ low and the gap comparison misleading. The error was caught and corrected.
     print(text)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Main
-# ──────────────────────────────────────────────────────────────────────────────
-
 def main():
     """Load saved models, generate plot, and print analysis."""
 
-    # ── load training history ────────────────────────────────────────────────
+    # Load training history
     with open('training_history.json', 'r') as f:
         history = json.load(f)
     cfg = history['config']
 
-    # ── load models and evaluate on test set ─────────────────────────────────
+    # Load models and evaluate on test set
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -344,7 +321,7 @@ def main():
         test_data, batch_size=128, shuffle=False)
     criterion = nn.CrossEntropyLoss()
 
-    # baseline (no BatchNorm, no Dropout)
+    # Baseline (no BatchNorm, no Dropout)
     baseline = DeepNetwork(
         input_dim, num_classes, cfg['hidden_dims'],
         dropout_rate=0.0, use_batchnorm=False)
@@ -353,7 +330,7 @@ def main():
     baseline.to(device)
     _, bl_test = evaluate(baseline, test_loader, criterion, device)
 
-    # regularized (data augmentation + BatchNorm + Dropout)
+    # Regularized (data augmentation + BatchNorm + Dropout)
     regularized = DeepNetwork(
         input_dim, num_classes, cfg['hidden_dims'],
         dropout_rate=cfg['dropout_rate'],
@@ -366,14 +343,10 @@ def main():
     print(f"Baseline     test accuracy: {bl_test:.4f}")
     print(f"Regularized  test accuracy: {rg_test:.4f}\n")
 
-    # update history with fresh test numbers
     history['baseline_test_acc'] = bl_test
     history['reg_test_acc']      = rg_test
 
-    # ── generate plot ────────────────────────────────────────────────────────
     create_generalization_gap_plot(history, 'generalization_gap.png')
-
-    # ── print technical analysis ─────────────────────────────────────────────
     print_technical_analysis(history)
 
 

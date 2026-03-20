@@ -23,10 +23,8 @@ import torchvision.transforms as transforms
 import json
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Model
-# ──────────────────────────────────────────────────────────────────────────────
 
+# Model Selection
 class DeepNetwork(nn.Module):
     """Deep feedforward network built exclusively from nn.Linear primitives.
 
@@ -73,11 +71,6 @@ class DeepNetwork(nn.Module):
             torch.Tensor: Logits of shape (batch_size, num_classes).
         """
         return self.network(x)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Training utilities
-# ──────────────────────────────────────────────────────────────────────────────
 
 def evaluate(model, loader, criterion, device):
     """Compute average loss and accuracy on a dataset.
@@ -166,8 +159,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     for epoch in range(num_epochs):
         train_one_epoch(model, train_loader, criterion, optimizer, device)
 
-        # Evaluate training accuracy on clean (non-augmented) data for an
-        # accurate generalization gap measurement
+        # Evaluate training accuracy on clean data
         if train_eval_loader is not None:
             tr_loss, tr_acc = evaluate(
                 model, train_eval_loader, criterion, device)
@@ -193,17 +185,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     return history
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
 
+# Main
 def main():
     """Download CIFAR-10, train baseline & regularized models, save artefacts."""
-
-    # ── reproducibility ──────────────────────────────────────────────────────
     torch.manual_seed(42)
 
-    # ── configuration ────────────────────────────────────────────────────────
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -214,22 +201,21 @@ def main():
     batch_size   = 128
     lr           = 0.01
     momentum     = 0.9
-    input_dim    = 3 * 32 * 32          # CIFAR-10 flattened
+    input_dim    = 3 * 32 * 32          
     num_classes  = 10
-    hidden_dims  = [1024, 512, 512, 256, 128]   # 5 hidden + 1 output = 6 Linear layers
+    hidden_dims  = [1024, 512, 512, 256, 128]   
 
     print(f"Device: {device}")
     print(f"Architecture: {input_dim} -> {' -> '.join(map(str, hidden_dims))} -> {num_classes}")
     print(f"Epochs: {num_epochs}  Batch: {batch_size}  LR: {lr}  Momentum: {momentum}\n")
 
-    # ── data ─────────────────────────────────────────────────────────────────
     eval_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465),
                              (0.2470, 0.2435, 0.2616)),
     ])
 
-    # Data augmentation for regularized model (Lecture 4, Lecture 6 "no harm tricks")
+    # Data augmentation for regularized model
     aug_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -260,8 +246,8 @@ def main():
         train_set, batch_size=batch_size, shuffle=True)
     train_loader_aug = torch.utils.data.DataLoader(
         train_set_aug, batch_size=batch_size, shuffle=True)
-    # Clean evaluation loader over training set (no augmentation) for accurate
-    # training accuracy measurement — avoids deflating train acc with augmented data
+    
+    # Clean evaluation loader over training set
     train_eval_loader = torch.utils.data.DataLoader(
         train_set, batch_size=batch_size, shuffle=False)
     val_loader = torch.utils.data.DataLoader(
@@ -271,7 +257,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
 
-    # ── baseline model (high capacity, NO regularization) ────────────────────
+    # Baseline model
     print("=" * 70)
     print("BASELINE MODEL  (no regularization)")
     print("=" * 70)
@@ -283,7 +269,8 @@ def main():
     print(f"Parameters: {bl_param_count:,}\n")
 
     bl_optim = torch.optim.SGD(baseline.parameters(), lr=lr, momentum=momentum)
-    # LR scheduler: halve learning rate every 15 epochs (Lecture 2: adaptive LR)
+    
+    # LR scheduler: halve learning rate every 15 epochs
     bl_sched = torch.optim.lr_scheduler.StepLR(bl_optim, step_size=15, gamma=0.5)
     bl_hist  = train_model(
         baseline, train_loader, val_loader, criterion, bl_optim,
@@ -294,7 +281,7 @@ def main():
     torch.save(baseline.state_dict(), 'baseline_model.pth')
     print("  -> Saved baseline_model.pth\n")
 
-    # regularized model (data augmentation + BatchNorm + Dropout + weight decay)
+    # Regularized model
     print("=" * 70)
     print("REGULARIZED MODEL  (Augmentation+ColorJitter + BatchNorm + Dropout p=0.3 + WD 1e-3)")
     print("=" * 70)
@@ -319,7 +306,6 @@ def main():
     torch.save(reg_model.state_dict(), 'regularized_model.pth')
     print("  -> Saved regularized_model.pth\n")
 
-    # ── save training history ────────────────────────────────────────────────
     history = {
         'baseline':          bl_hist,
         'regularized':       reg_hist,
