@@ -19,7 +19,6 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-import json
 from PIL import Image, ImageDraw, ImageFont
 
 from train import ConvNet, evaluate
@@ -263,7 +262,7 @@ calibrated. Allocating some probability to incorrect classes shows realistic
 uncertainty, acting as output regularisation that complements MixUp's input-space regularisation.
 
 Our loss function computes log-softmax from scratch using the max-subtraction
-trick for numerical stability. Then, we takes the negative dot product of smoothed
+trick for numerical stability. Then, we take the negative dot product of smoothed
 targets with log-probabilities which is averaged over the batch.
 
 3. Quantitative results
@@ -294,10 +293,12 @@ def main():
     """Load saved models, evaluate robustness, generate visualisation,
     print analysis."""
 
-    # Load training history 
-    with open('training_history.json', 'r') as f:
-        data = json.load(f)
-    config = data['config']
+    # Training configuration (matches train.py)
+    config = {
+        'alpha': 0.2,
+        'epsilon': 0.1,
+        'patience': 10,
+    }
 
     # Setup
     if torch.cuda.is_available():

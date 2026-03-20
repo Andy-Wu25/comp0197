@@ -4,7 +4,7 @@ COMP0197 Coursework 1 — Task 1: The Dynamics of Generalization
 train.py
 --------
 Downloads CIFAR-10, builds baseline and regularized deep feedforward networks,
-trains both, and saves model weights and per-epoch training history.
+trains both, and saves model weights.
 
 GenAI Usage Statement
 ---------------------
@@ -17,7 +17,6 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-import json
 
 
 
@@ -269,7 +268,7 @@ def main():
     
     # LR scheduler: halve learning rate every 15 epochs
     bl_sched = torch.optim.lr_scheduler.StepLR(bl_optim, step_size=15, gamma=0.5)
-    bl_hist  = train_model(
+    train_model(
         baseline, train_loader, val_loader, criterion, bl_optim,
         num_epochs, device, scheduler=bl_sched)
 
@@ -293,7 +292,7 @@ def main():
         reg_model.parameters(), lr=lr, momentum=momentum, weight_decay=1e-3)
     reg_sched = torch.optim.lr_scheduler.StepLR(reg_optim, step_size=15, gamma=0.5)
 
-    reg_hist = train_model(
+    train_model(
         reg_model, train_loader_aug, val_loader, criterion, reg_optim,
         num_epochs, device, scheduler=reg_sched,
         train_eval_loader=train_eval_loader)
@@ -303,29 +302,6 @@ def main():
     torch.save(reg_model.state_dict(), 'regularized_model.pth')
     print("  -> Saved regularized_model.pth\n")
 
-    history = {
-        'baseline':          bl_hist,
-        'regularized':       reg_hist,
-        'baseline_test_acc': bl_test,
-        'reg_test_acc':      reg_test,
-        'baseline_param_count': bl_param_count,
-        'reg_param_count':      reg_param_count,
-        'config': {
-            'num_epochs':      num_epochs,
-            'batch_size':      batch_size,
-            'lr':              lr,
-            'momentum':        momentum,
-            'hidden_dims':     hidden_dims,
-            'dropout_rate':    0.3,
-            'weight_decay':    1e-3,
-            'use_batchnorm':   True,
-            'use_augmentation': True,
-            'lr_scheduler':    'StepLR(step_size=15, gamma=0.5)',
-        },
-    }
-    with open('training_history.json', 'w') as f:
-        json.dump(history, f, indent=2)
-    print("Saved training_history.json")
     print("Done.\n")
 
 

@@ -19,7 +19,6 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
-import json
 import copy
 
 
@@ -96,7 +95,6 @@ def mixup_data(x, y, num_classes=10, alpha=0.2):
     - Element-wise multiplication and addition for blending
     - scatter_ for one-hot encoding
 
-    Reference: Lecture 4 — mixup regularisation (vicinal risk minimisation).
     Following the original MixUp paper (Zhang et al., 2018): one lambda
     per batch.
 
@@ -144,7 +142,7 @@ def label_smoothing_cross_entropy(logits, targets, epsilon=0.1):
     Converts target distributions to smoothed targets and computes the loss
     using a manually implemented log-softmax with numerical stability.
 
-    Soft target formula (Lecture 4 — label smoothing under randomness):
+    Soft target formula:
         y_smooth = (1 - epsilon) * y + epsilon / K
     where K is the number of classes and y is the input target distribution.
 
@@ -442,7 +440,7 @@ def main():
     
     # LR scheduler
     bl_sched = torch.optim.lr_scheduler.StepLR(bl_optim, step_size=20, gamma=0.5)
-    bl_hist  = train_model(
+    train_model(
         baseline, train_loader, val_loader, bl_optim, device,
         num_epochs=num_epochs, patience=patience,
         scheduler=bl_sched, train_eval_loader=train_eval_loader)
@@ -460,7 +458,7 @@ def main():
 
     mx_optim = torch.optim.Adam(mixup_model.parameters(), lr=lr)
     mx_sched = torch.optim.lr_scheduler.StepLR(mx_optim, step_size=20, gamma=0.5)
-    mx_hist  = train_model(
+    train_model(
         mixup_model, train_loader, val_loader, mx_optim, device,
         num_epochs=num_epochs, patience=patience,
         use_mixup=True, alpha=alpha, epsilon=epsilon, num_classes=num_classes,
@@ -477,26 +475,6 @@ def main():
     print("\n  -> Saved models.pth")
 
     # Save training history
-    history = {
-        'baseline':          bl_hist,
-        'mixup':             mx_hist,
-        'baseline_test_acc': bl_test,
-        'mixup_test_acc':    mx_test,
-        'param_count':       param_count,
-        'config': {
-            'num_epochs':    num_epochs,
-            'batch_size':    batch_size,
-            'lr':            lr,
-            'alpha':         alpha,
-            'epsilon':       epsilon,
-            'patience':      patience,
-            'lr_scheduler':  'StepLR(step_size=20, gamma=0.5)',
-            'grad_clip':     5.0,
-        },
-    }
-    with open('training_history.json', 'w') as f:
-        json.dump(history, f, indent=2)
-    print("  -> Saved training_history.json")
     print("Done.\n")
 
 
