@@ -10,13 +10,10 @@ stopping, and saves both models.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring and drafting the
-technical analysis. All model design decisions, hyperparameter choices, and
-from-scratch implementations were verified by the author against the COMP0197
-lecture material. One specific correction: Claude initially applied label
-smoothing only to hard targets, whereas the correct approach applies smoothing
-on top of MixUp's already-soft labels during training, ensuring both
-regularisation techniques compose correctly.
+Claude was used to assist with code structuring. One specific correction: 
+Claude initially applied label smoothing only to hard targets, whereas the 
+correct approach applies smoothing on top of MixUp's already-soft labels 
+during training, ensuring both regularisation techniques compose correctly.
 """
 
 import torch
@@ -27,10 +24,7 @@ import json
 import copy
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Model
-# ──────────────────────────────────────────────────────────────────────────────
-
+# Model Selection
 class ConvNet(nn.Module):
     """CNN for CIFAR-10 classification built from layer primitives.
 
@@ -89,10 +83,8 @@ class ConvNet(nn.Module):
         return self.classifier(self.features(x))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# From-Scratch: Custom MixUp
-# ──────────────────────────────────────────────────────────────────────────────
 
+# Custom MixUp
 def mixup_data(x, y, num_classes=10, alpha=0.2):
     """Apply MixUp augmentation to a batch of inputs and labels.
 
@@ -133,30 +125,20 @@ def mixup_data(x, y, num_classes=10, alpha=0.2):
         ).sample().item()
     else:
         lam = 1.0
-
-    # Random permutation for pairing
+        
     indices = torch.randperm(batch_size, device=x.device)
-
-    # Blend inputs: x_tilde = lam * x_i + (1 - lam) * x_j
     mixed_x = lam * x + (1.0 - lam) * x[indices]
-
-    # One-hot encode labels using scatter_
     y_onehot = torch.zeros(batch_size, num_classes, device=x.device)
     y_onehot.scatter_(1, y.unsqueeze(1), 1.0)
-
     y_perm_onehot = torch.zeros(batch_size, num_classes, device=x.device)
     y_perm_onehot.scatter_(1, y[indices].unsqueeze(1), 1.0)
 
-    # Blend labels: y_tilde = lam * y_i + (1 - lam) * y_j
     mixed_y = lam * y_onehot + (1.0 - lam) * y_perm_onehot
 
     return mixed_x, mixed_y, lam, indices
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# From-Scratch: Label Smoothing Cross-Entropy
-# ──────────────────────────────────────────────────────────────────────────────
-
+# Label Smoothing Cross-Entropy
 def label_smoothing_cross_entropy(logits, targets, epsilon=0.1):
     """Compute cross-entropy loss with label smoothing.
 
@@ -184,17 +166,13 @@ def label_smoothing_cross_entropy(logits, targets, epsilon=0.1):
         torch.Tensor: Scalar mean loss value.
     """
     num_classes = logits.size(1)
-
-    # Apply label smoothing: (1-eps)*target + eps/K
     smooth_targets = (1.0 - epsilon) * targets + epsilon / num_classes
-
-    # Manual log-softmax with numerical stability
     max_logits = logits.max(dim=1, keepdim=True).values
     shifted = logits - max_logits
     log_sum_exp = torch.log(shifted.exp().sum(dim=1, keepdim=True))
     log_probs = shifted - log_sum_exp
 
-    # Cross-entropy: -mean over batch of sum over classes
+    # Cross-entropy
     loss = -(smooth_targets * log_probs).sum(dim=1).mean()
 
     return loss
@@ -272,8 +250,8 @@ def train_one_epoch_mixup(model, loader, optimizer, device,
     """Run one training epoch with MixUp augmentation and Label Smoothing.
 
     Each batch is augmented with MixUp before computing the label-smoothed
-    cross-entropy loss.  Training accuracy is approximate (compared against
-    the dominant class in the mixed label).
+    cross-entropy loss.  Returns only the mixed training loss — accurate
+    training accuracy is measured separately on clean data via evaluate().
 
     Args:
         model       (nn.Module):            Model.
@@ -285,11 +263,10 @@ def train_one_epoch_mixup(model, loader, optimizer, device,
         num_classes (int):                 Number of classes.  Default: 10.
 
     Returns:
-        (float, float): (mean_loss, approximate_accuracy).
+        float: Mean mixed training loss.
     """
     model.train()
     running_loss = 0.0
-    correct = 0
     total = 0
 
     for images, labels in loader:
@@ -304,19 +281,21 @@ def train_one_epoch_mixup(model, loader, optimizer, device,
         logits = model(mixed_x)
         loss = label_smoothing_cross_entropy(logits, mixed_y, epsilon)
         loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
 
         running_loss += loss.item() * images.size(0)
-        # Approximate accuracy: compare prediction to dominant mixed class
-        correct += logits.argmax(1).eq(mixed_y.argmax(1)).sum().item()
         total += labels.size(0)
 
-    return running_loss / total, correct / total
+    return running_loss / total
 
 
 def train_model(model, train_loader, val_loader, optimizer, device,
                 num_epochs, patience, use_mixup=False, alpha=0.2,
-                epsilon=0.1, num_classes=10):
+                epsilon=0.1, num_classes=10, scheduler=None,
+                train_eval_loader=None):
     """Training loop with manual validation-based early stopping.
 
     Monitors validation loss (standard cross-entropy) and stops when no
@@ -324,17 +303,21 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     the best model weights after stopping.
 
     Args:
-        model        (nn.Module):            Model to train.
-        train_loader (DataLoader):           Training data.
-        val_loader   (DataLoader):           Validation data.
-        optimizer    (torch.optim.Optimizer): Optimizer.
-        device       (torch.device):         Computation device.
-        num_epochs   (int):                  Maximum number of epochs.
-        patience     (int):                  Early stopping patience.
-        use_mixup    (bool):  Use MixUp + Label Smoothing.  Default: False.
-        alpha        (float): MixUp Beta parameter.         Default: 0.2.
-        epsilon      (float): Label smoothing factor.       Default: 0.1.
-        num_classes  (int):   Number of classes.            Default: 10.
+        model            (nn.Module):            Model to train.
+        train_loader     (DataLoader):           Training data.
+        val_loader       (DataLoader):           Validation data.
+        optimizer        (torch.optim.Optimizer): Optimizer.
+        device           (torch.device):         Computation device.
+        num_epochs       (int):                  Maximum number of epochs.
+        patience         (int):                  Early stopping patience.
+        use_mixup        (bool):  Use MixUp + Label Smoothing.  Default: False.
+        alpha            (float): MixUp Beta parameter.         Default: 0.2.
+        epsilon          (float): Label smoothing factor.       Default: 0.1.
+        num_classes      (int):   Number of classes.            Default: 10.
+        scheduler        (lr_scheduler, optional): Learning rate scheduler.
+                                                   Default: None.
+        train_eval_loader (DataLoader, optional): Clean loader over training
+                         set for accurate train accuracy.  Default: None.
 
     Returns:
         dict: Training history with keys 'train_loss', 'train_acc',
@@ -348,14 +331,17 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     epochs_no_improve = 0
 
     for epoch in range(num_epochs):
-        # Training phase
         if use_mixup:
-            tr_loss, tr_acc = train_one_epoch_mixup(
+            train_one_epoch_mixup(
                 model, train_loader, optimizer, device,
                 alpha, epsilon, num_classes)
         else:
-            tr_loss, tr_acc = train_one_epoch(
+            train_one_epoch(
                 model, train_loader, criterion, optimizer, device)
+
+        # Evaluate training accuracy on clean (non-mixed) data
+        eval_loader = train_eval_loader if train_eval_loader else train_loader
+        tr_loss, tr_acc = evaluate(model, eval_loader, criterion, device)
 
         # Validation phase (standard CE for fair early stopping)
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
@@ -365,7 +351,8 @@ def train_model(model, train_loader, val_loader, optimizer, device,
         history['val_loss'].append(val_loss)
         history['val_acc'].append(val_acc)
 
-        print(f"  Epoch [{epoch+1:3d}/{num_epochs}]  "
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"  Epoch [{epoch+1:3d}/{num_epochs}]  LR: {current_lr:.5f}  "
               f"Train Loss: {tr_loss:.4f}  Train Acc: {tr_acc:.4f}  "
               f"Val Loss: {val_loss:.4f}  Val Acc: {val_acc:.4f}")
 
@@ -381,6 +368,9 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                       f"(no val_loss improvement for {patience} epochs)")
                 break
 
+        if scheduler is not None:
+            scheduler.step()
+
     # Restore best model weights
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -390,18 +380,14 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     return history
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
 
+# Main
 def main():
     """Download CIFAR-10, train baseline and MixUp+LS models with early
     stopping, and save both models and training history."""
 
-    # ── reproducibility ───────────────────────────────────────────────────
     torch.manual_seed(42)
 
-    # ── configuration ─────────────────────────────────────────────────────
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -421,7 +407,6 @@ def main():
     print(f"MixUp alpha: {alpha}  Label Smoothing epsilon: {epsilon}")
     print(f"Early Stopping patience: {patience}\n")
 
-    # ── data ──────────────────────────────────────────────────────────────
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465),
@@ -439,6 +424,10 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=batch_size, shuffle=True)
+    
+    # Clean evaluation loader over training set 
+    train_eval_loader = torch.utils.data.DataLoader(
+        train_set, batch_size=batch_size, shuffle=False)
     val_loader = torch.utils.data.DataLoader(
         val_set, batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
@@ -446,7 +435,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
 
-    # ── baseline model (standard CE, no MixUp / Label Smoothing) ─────────
+    # Baseline model 
     print("=" * 70)
     print("BASELINE MODEL  (standard cross-entropy, no MixUp / Label Smoothing)")
     print("=" * 70)
@@ -456,14 +445,18 @@ def main():
     print(f"Parameters: {param_count:,}\n")
 
     bl_optim = torch.optim.Adam(baseline.parameters(), lr=lr)
+    
+    # LR scheduler
+    bl_sched = torch.optim.lr_scheduler.StepLR(bl_optim, step_size=20, gamma=0.5)
     bl_hist  = train_model(
         baseline, train_loader, val_loader, bl_optim, device,
-        num_epochs=num_epochs, patience=patience)
+        num_epochs=num_epochs, patience=patience,
+        scheduler=bl_sched, train_eval_loader=train_eval_loader)
 
     _, bl_test = evaluate(baseline, test_loader, criterion, device)
     print(f"\n  -> Baseline test accuracy: {bl_test:.4f}")
 
-    # ── MixUp + Label Smoothing model ────────────────────────────────────
+    # MixUp + Label Smoothing model
     print("\n" + "=" * 70)
     print(f"MIXUP + LABEL SMOOTHING MODEL  (alpha={alpha}, epsilon={epsilon})")
     print("=" * 70)
@@ -472,22 +465,24 @@ def main():
     print(f"Parameters: {param_count:,}\n")
 
     mx_optim = torch.optim.Adam(mixup_model.parameters(), lr=lr)
+    mx_sched = torch.optim.lr_scheduler.StepLR(mx_optim, step_size=20, gamma=0.5)
     mx_hist  = train_model(
         mixup_model, train_loader, val_loader, mx_optim, device,
         num_epochs=num_epochs, patience=patience,
-        use_mixup=True, alpha=alpha, epsilon=epsilon, num_classes=num_classes)
+        use_mixup=True, alpha=alpha, epsilon=epsilon, num_classes=num_classes,
+        scheduler=mx_sched, train_eval_loader=train_eval_loader)
 
     _, mx_test = evaluate(mixup_model, test_loader, criterion, device)
     print(f"\n  -> MixUp+LS test accuracy: {mx_test:.4f}")
 
-    # ── save models ──────────────────────────────────────────────────────
+    # Save models
     torch.save({
         'baseline_state': baseline.state_dict(),
         'mixup_state':    mixup_model.state_dict(),
     }, 'models.pth')
     print("\n  -> Saved models.pth")
 
-    # ── save training history ────────────────────────────────────────────
+    # Save training history
     history = {
         'baseline':          bl_hist,
         'mixup':             mx_hist,
@@ -495,12 +490,14 @@ def main():
         'mixup_test_acc':    mx_test,
         'param_count':       param_count,
         'config': {
-            'num_epochs':  num_epochs,
-            'batch_size':  batch_size,
-            'lr':          lr,
-            'alpha':       alpha,
-            'epsilon':     epsilon,
-            'patience':    patience,
+            'num_epochs':    num_epochs,
+            'batch_size':    batch_size,
+            'lr':            lr,
+            'alpha':         alpha,
+            'epsilon':       epsilon,
+            'patience':      patience,
+            'lr_scheduler':  'StepLR(step_size=20, gamma=0.5)',
+            'grad_clip':     5.0,
         },
     }
     with open('training_history.json', 'w') as f:

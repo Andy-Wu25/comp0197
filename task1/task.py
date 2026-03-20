@@ -50,6 +50,21 @@ def _load_font(size):
         return ImageFont.load_default()
 
 
+def _get_text_size(draw, text, font):
+    """Measure rendered text width and height using textbbox.
+
+    Args:
+        draw (ImageDraw.Draw): Draw context.
+        text (str):            Text to measure.
+        font (ImageFont):      Font to use.
+
+    Returns:
+        (int, int): (width, height) in pixels.
+    """
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
 def create_generalization_gap_plot(history, filename='generalization_gap.png'):
     """Render training-vs-validation accuracy curves for both models as a PNG.
 
@@ -148,11 +163,16 @@ def create_generalization_gap_plot(history, filename='generalization_gap.png'):
               fill='#1565C0', font=font_sm)
 
     # ── title & axis labels ──────────────────────────────────────────────────
-    draw.text((margin['l'] + pw // 2 - 150, 12),
-              "Generalization Gap: Training vs Validation Accuracy",
+    title_str = "Generalization Gap: Training vs Validation Accuracy"
+    tw, _ = _get_text_size(draw, title_str, font_title)
+    draw.text(((W - tw) // 2, 12), title_str,
               fill='#111111', font=font_title)
-    draw.text((margin['l'] + pw // 2 - 15, H - 28),
-              "Epoch", fill='#333333', font=font_md)
+
+    x_label = "Epoch"
+    xw, _ = _get_text_size(draw, x_label, font_md)
+    draw.text(((margin['l'] + margin['l'] + pw - xw) // 2, H - 28),
+              x_label, fill='#333333', font=font_md)
+
     for i, ch in enumerate("Accuracy"):
         draw.text((12, margin['t'] + ph // 2 - 55 + i * 16),
                   ch, fill='#333333', font=font_md)
@@ -222,22 +242,27 @@ leakage (Lecture 6).
 
 2. IMPLICIT REGULARIZATION VIA OPTIMIZER CHOICE
 
-Both models use SGD with momentum (beta={c['momentum']}) and mini-batch size
-{c['batch_size']}. Mini-batch SGD provides implicit regularization through
-gradient noise (Lecture 2). At each step the gradient is estimated from a random
-subset, injecting noise that biases the optimizer toward flat minima — regions
-where loss varies slowly under parameter perturbation — which are empirically
-associated with better generalization. Momentum smooths the trajectory while
-preserving stochastic exploration. Even the baseline benefits; full-batch
-gradient descent would overfit more severely.
+Both models use SGD with momentum (beta={c['momentum']}), mini-batch size
+{c['batch_size']}, and a StepLR learning rate schedule that halves the rate
+every 15 epochs (Lecture 2: adaptive learning rates). Mini-batch SGD provides
+implicit regularization through gradient noise (Lecture 2). At each step the
+gradient is estimated from a random subset, injecting noise that biases the
+optimizer toward flat minima — regions where loss varies slowly under parameter
+perturbation — which are empirically associated with better generalization.
+The learning rate decay progressively reduces the step size, allowing the
+optimizer to settle into a minimum rather than oscillating. Momentum smooths
+the trajectory while preserving stochastic exploration. Even the baseline
+benefits; full-batch gradient descent would overfit more severely.
 
 3. EXPLICIT REGULARIZATION TECHNIQUES
 
 Data Augmentation (Lecture 4, Lecture 6 "no harm tricks"): The regularized model
-trains on augmented images using RandomCrop (padding=4) and RandomHorizontalFlip.
-These expand the effective training set by synthesising translated and reflected
-copies, reducing variance without increasing model complexity. The baseline trains
-on the original images only, so the gap quantifies augmentation's contribution.
+trains on augmented images using RandomCrop (padding=4), RandomHorizontalFlip,
+and ColorJitter (brightness/contrast/saturation=0.2). These expand the effective
+training set by synthesising translated, reflected, and colour-perturbed copies
+(Lecture 4: colour/intensity space transforms), reducing variance without
+increasing model complexity. Training accuracy is evaluated on clean
+(non-augmented) data to give an accurate generalization gap measurement.
 
 BatchNorm (Lecture 4, slides 17-18): Normalises each hidden layer's activations
 to zero mean and unit variance within each mini-batch, then applies a learnable
@@ -260,8 +285,10 @@ network retains all features at reduced magnitude.
 * Architecture [{hdims}]: funnel topology through 6 linear layers, encouraging
   hierarchical feature abstraction (Lecture 1). Appropriate weight
   initialization maintains stable gradient flow (Lecture 2).
-* LR {c['lr']} + momentum {c['momentum']}: standard SGD configuration balancing
-  convergence speed with stability (Lecture 2).
+* LR {c['lr']} + momentum {c['momentum']} + StepLR (step=15, gamma=0.5):
+  standard SGD configuration with learning rate decay for stable convergence
+  (Lecture 2). The schedule reduces the LR at epochs 15 and 30, refining
+  optimisation as training progresses.
 * Batch size {c['batch_size']}: sufficient gradient noise for implicit
   regularization while keeping variance manageable (Lecture 2).
 

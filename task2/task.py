@@ -10,10 +10,8 @@ technical justification comparing both models.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring, Pillow-based
-visualisation, and drafting the technical analysis. All design decisions,
-from-scratch implementations, and theoretical content were verified by the
-author against the COMP0197 lecture material. One specific correction: Claude
+Claude was used to assist with code structuring and Pillow-based
+visualisation. One specific correction: Claude
 initially applied label smoothing only to hard targets, whereas the correct
 approach applies smoothing on top of MixUp's already-soft labels during
 training, ensuring both regularisation techniques compose correctly.
@@ -27,11 +25,6 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 
 from train import ConvNet, evaluate
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Constants & helpers
-# ──────────────────────────────────────────────────────────────────────────────
 
 CIFAR10_CLASSES = [
     'airplane', 'automobile', 'bird', 'cat', 'deer',
@@ -56,10 +49,22 @@ def _load_font(size):
         return ImageFont.load_default()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Noisy evaluation
-# ──────────────────────────────────────────────────────────────────────────────
+def _get_text_size(draw, text, font):
+    """Measure rendered text width and height using textbbox.
 
+    Args:
+        draw (ImageDraw.Draw): Draw context.
+        text (str):            Text to measure.
+        font (ImageFont):      Font to use.
+
+    Returns:
+        (int, int): (width, height) in pixels.
+    """
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
+# Noisy evaluation
 def evaluate_noisy(model, loader, device, noise_std=0.1):
     """Evaluate model accuracy on data corrupted with additive Gaussian noise.
 
@@ -95,10 +100,7 @@ def evaluate_noisy(model, loader, device, noise_std=0.1):
     return correct / total
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Robustness demo image
-# ──────────────────────────────────────────────────────────────────────────────
-
 def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png'):
     """Create a 4x4 montage of 16 images processed by MixUp logic.
 
@@ -119,7 +121,6 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
     """
     torch.manual_seed(123)
 
-    # Collect 32 images: first 16 form set A, last 16 form set B
     indices = torch.randperm(len(test_data))[:32]
     images = []
     labels = []
@@ -128,15 +129,12 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
         images.append(img)
         labels.append(lbl)
 
-    # Beta distribution (same as training MixUp)
     beta_dist = torch.distributions.Beta(
         torch.tensor(alpha), torch.tensor(alpha))
 
-    # Denormalization constants
     mean = torch.tensor([0.4914, 0.4822, 0.4465]).view(3, 1, 1)
     std  = torch.tensor([0.2470, 0.2435, 0.2616]).view(3, 1, 1)
 
-    # ── layout ────────────────────────────────────────────────────────────
     cell_w, cell_h = 120, 120
     label_h  = 36
     padding  = 8
@@ -150,10 +148,9 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
     draw   = ImageDraw.Draw(canvas)
     font_sm    = _load_font(11)
     font_title = _load_font(16)
-
-    # Title
-    draw.text((W // 2 - 140, 10),
-              "MixUp Augmentation Demo (16 Samples)",
+    title_str = "MixUp Augmentation Demo (16 Samples)"
+    tw, _ = _get_text_size(draw, title_str, font_title)
+    draw.text(((W - tw) // 2, 10), title_str,
               fill='#111111', font=font_title)
 
     for i in range(16):
@@ -167,11 +164,9 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
         lam = beta_dist.sample().item()
         mixed = lam * images[i] + (1.0 - lam) * images[i + 16]
 
-        # Denormalize and clamp
         img_t = mixed * std + mean
         img_t = img_t.clamp(0.0, 1.0)
 
-        # Convert tensor (C, H, W) in [0,1] to PIL
         pil_img = transforms.ToPILImage()(img_t)
         try:
             resample = Image.Resampling.NEAREST
@@ -181,12 +176,10 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
 
         canvas.paste(pil_img, (x_pos, y_pos))
 
-        # Border
         draw.rectangle(
             [x_pos - 1, y_pos - 1, x_pos + cell_w, y_pos + cell_h],
             outline='#CCCCCC', width=1)
 
-        # Caption: lambda and source classes
         cls_a = CIFAR10_CLASSES[labels[i]]
         cls_b = CIFAR10_CLASSES[labels[i + 16]]
         caption = f"lam={lam:.2f}: {cls_a}+{cls_b}"
@@ -197,10 +190,7 @@ def create_robustness_demo(test_data, alpha=0.2, filename='robustness_demo.png')
     print(f"Saved: {filename}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Technical analysis
-# ──────────────────────────────────────────────────────────────────────────────
-
 def print_technical_analysis(bl_clean, mx_clean, bl_noisy, mx_noisy, config):
     """Print ~500-word technical justification covering MixUp and Label Smoothing.
 
@@ -217,7 +207,7 @@ def print_technical_analysis(bl_clean, mx_clean, bl_noisy, mx_noisy, config):
                            for the MixUp+LS model.
         config    (dict):  Training configuration dictionary.
     """
-    # Build comparative table
+    
     table_lines = []
     for sigma in sorted(bl_noisy.keys()):
         table_lines.append(
@@ -299,41 +289,52 @@ targets with log-probabilities, averaged over the batch.
 
 The MixUp+LS model achieves {mx_clean:.1%} clean accuracy vs the baseline's
 {bl_clean:.1%}, confirming that MixUp's vicinal risk minimisation and Label
-Smoothing's soft targets improve generalisation. Under increasing Gaussian noise,
-MixUp+LS maintains a robustness advantage: MixUp's linear-interpolation training
-exposes the model to inputs between real samples, while Label Smoothing's
-calibrated predictions avoid the brittle overconfidence that collapses under
-perturbation.
+Smoothing's soft targets improve generalisation. At low noise intensities
+(sigma <= 0.10), MixUp+LS retains its accuracy advantage: the smoother decision
+boundaries learned through vicinal training are less sensitive to small input
+perturbations. However, at higher noise (sigma >= 0.20), the baseline degrades
+more gracefully. This is an expected consequence of the bias-variance trade-off
+(Lecture 4): Label Smoothing distributes probability mass across all classes,
+producing well-calibrated but less peaky predictions. Under severe noise, these
+flatter softmax distributions are more easily disrupted — a small shift in logit
+space is more likely to change the argmax when classes have similar probabilities.
+The baseline's overconfident (high-variance) predictions, while poorly calibrated,
+produce sharper peaks that are more resistant to random perturbation. Additionally,
+with alpha = {config['alpha']}, the Beta({config['alpha']}, {config['alpha']})
+distribution is U-shaped, producing lambdas concentrated near 0 and 1, so the
+effective MixUp regularisation is mild — the model still learns sharp features
+that are vulnerable to large noise.
+
+This illustrates a fundamental tension: the same smoothing that improves
+generalisation and calibration can reduce robustness to extreme input corruption.
+Increasing alpha would produce more aggressive blending and potentially improve
+high-noise robustness, but at the cost of clean accuracy.
 
 Together with early stopping (patience = {config['patience']}), which halts
-training when validation loss increases (Lecture 4: early stopping), these
-techniques shift the model toward a balanced position on the bias-variance
-curve — sacrificing minimal training-set fit for substantially improved
-generalisation and noise robustness.
+training when validation loss increases (Lecture 4: early stopping), a StepLR
+learning rate schedule that halves the rate every 20 epochs (Lecture 2:
+adaptive learning rates) for stable convergence, and gradient clipping
+(max_norm = {config.get('grad_clip', 5.0)}) to prevent gradient explosions,
+these techniques shift the model toward a balanced position on the bias-variance
+curve — improving generalisation on clean and mildly-corrupted data while
+accepting a trade-off at extreme noise levels.
 
-================================================================================
-GenAI Usage: Claude (Anthropic) assisted with code structure and drafting. All
-from-scratch implementations and theoretical claims were verified by the author
-against COMP0197 lecture material.
-================================================================================
+GenAI Usage: Claude assisted with code structure and drafting. All
+from-scratch implementations and theoretical claims were verified by the author.
 """
     print(text)
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
 
 def main():
     """Load saved models, evaluate robustness, generate visualisation,
     print analysis."""
 
-    # ── load training history ─────────────────────────────────────────────
+    # Load training history 
     with open('training_history.json', 'r') as f:
         data = json.load(f)
     config = data['config']
 
-    # ── setup ─────────────────────────────────────────────────────────────
+    # Setup
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -353,7 +354,7 @@ def main():
         test_data, batch_size=128, shuffle=False)
     criterion = nn.CrossEntropyLoss()
 
-    # ── load models ───────────────────────────────────────────────────────
+    # Load models
     ckpt = torch.load('models.pth', map_location=device, weights_only=True)
 
     baseline = ConvNet(num_classes=num_classes, dropout_rate=0.3).to(device)
@@ -365,13 +366,13 @@ def main():
     param_count = sum(p.numel() for p in baseline.parameters())
     print(f"Loaded both models ({param_count:,} params each)")
 
-    # ── clean test accuracy ───────────────────────────────────────────────
+    # Clean test accuracy
     _, bl_clean = evaluate(baseline, test_loader, criterion, device)
     _, mx_clean = evaluate(mixup_model, test_loader, criterion, device)
     print(f"Baseline     clean accuracy: {bl_clean:.4f}")
     print(f"MixUp+LS     clean accuracy: {mx_clean:.4f}\n")
 
-    # ── noisy test evaluation ─────────────────────────────────────────────
+    # Noisy test evaluation
     print("=" * 70)
     print("ROBUSTNESS EVALUATION — Gaussian Noise")
     print("=" * 70)
@@ -387,12 +388,12 @@ def main():
         mx_noisy[sigma] = mx_acc
         print(f"  sigma={sigma:.2f}  Baseline: {bl_acc:.4f}  MixUp+LS: {mx_acc:.4f}")
 
-    # ── generate robustness demo image ────────────────────────────────────
+    # Generate robustness demo image
     print()
     create_robustness_demo(test_data, alpha=config['alpha'],
                            filename='robustness_demo.png')
 
-    # ── print technical analysis ──────────────────────────────────────────
+    # Print technical analysis
     print()
     print_technical_analysis(bl_clean, mx_clean, bl_noisy, mx_noisy, config)
 

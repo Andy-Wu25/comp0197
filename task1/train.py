@@ -140,17 +140,22 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer,
-                num_epochs, device):
+                num_epochs, device, scheduler=None, train_eval_loader=None):
     """Full training loop with per-epoch validation logging.
 
     Args:
-        model        (nn.Module):            Model to train.
-        train_loader (DataLoader):           Training split.
-        val_loader   (DataLoader):           Validation split.
-        criterion    (nn.Module):            Loss function.
-        optimizer    (torch.optim.Optimizer): Optimizer.
-        num_epochs   (int):                  Number of epochs.
-        device       (torch.device):         Computation device.
+        model            (nn.Module):            Model to train.
+        train_loader     (DataLoader):           Training split.
+        val_loader       (DataLoader):           Validation split.
+        criterion        (nn.Module):            Loss function.
+        optimizer        (torch.optim.Optimizer): Optimizer.
+        num_epochs       (int):                  Number of epochs.
+        device           (torch.device):         Computation device.
+        scheduler        (lr_scheduler, optional): Learning rate scheduler.
+                                                   Default: None.
+        train_eval_loader (DataLoader, optional): Clean (non-augmented) loader
+                         over training set for accurate train accuracy
+                         measurement.  If None, uses in-loop metrics.
 
     Returns:
         dict: Keys 'train_loss', 'train_acc', 'val_loss', 'val_acc',
@@ -159,8 +164,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     history = {k: [] for k in ('train_loss', 'train_acc', 'val_loss', 'val_acc')}
 
     for epoch in range(num_epochs):
-        tr_loss, tr_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device)
+        train_one_epoch(model, train_loader, criterion, optimizer, device)
+
+        # Evaluate training accuracy on clean (non-augmented) data for an
+        # accurate generalization gap measurement
+        if train_eval_loader is not None:
+            tr_loss, tr_acc = evaluate(
+                model, train_eval_loader, criterion, device)
+        else:
+            tr_loss, tr_acc = evaluate(
+                model, train_loader, criterion, device)
+
         va_loss, va_acc = evaluate(model, val_loader, criterion, device)
 
         history['train_loss'].append(tr_loss)
@@ -168,9 +182,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         history['val_loss'].append(va_loss)
         history['val_acc'].append(va_acc)
 
-        print(f"  Epoch [{epoch+1:3d}/{num_epochs}]  "
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"  Epoch [{epoch+1:3d}/{num_epochs}]  LR: {current_lr:.5f}  "
               f"Train Loss: {tr_loss:.4f}  Train Acc: {tr_acc:.4f}  "
               f"Val Loss: {va_loss:.4f}  Val Acc: {va_acc:.4f}")
+
+        if scheduler is not None:
+            scheduler.step()
 
     return history
 
@@ -215,6 +233,7 @@ def main():
     aug_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465),
                              (0.2470, 0.2435, 0.2616)),
@@ -241,6 +260,10 @@ def main():
         train_set, batch_size=batch_size, shuffle=True)
     train_loader_aug = torch.utils.data.DataLoader(
         train_set_aug, batch_size=batch_size, shuffle=True)
+    # Clean evaluation loader over training set (no augmentation) for accurate
+    # training accuracy measurement — avoids deflating train acc with augmented data
+    train_eval_loader = torch.utils.data.DataLoader(
+        train_set, batch_size=batch_size, shuffle=False)
     val_loader = torch.utils.data.DataLoader(
         val_set, batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(
@@ -260,18 +283,20 @@ def main():
     print(f"Parameters: {bl_param_count:,}\n")
 
     bl_optim = torch.optim.SGD(baseline.parameters(), lr=lr, momentum=momentum)
+    # LR scheduler: halve learning rate every 15 epochs (Lecture 2: adaptive LR)
+    bl_sched = torch.optim.lr_scheduler.StepLR(bl_optim, step_size=15, gamma=0.5)
     bl_hist  = train_model(
         baseline, train_loader, val_loader, criterion, bl_optim,
-        num_epochs, device)
+        num_epochs, device, scheduler=bl_sched)
 
     _, bl_test = evaluate(baseline, test_loader, criterion, device)
     print(f"\n  -> Baseline test accuracy: {bl_test:.4f}")
     torch.save(baseline.state_dict(), 'baseline_model.pth')
     print("  -> Saved baseline_model.pth\n")
 
-    # ── regularized model (data augmentation + BatchNorm + Dropout + weight decay)
+    # regularized model (data augmentation + BatchNorm + Dropout + weight decay)
     print("=" * 70)
-    print("REGULARIZED MODEL  (Augmentation + BatchNorm + Dropout p=0.3 + WD 1e-3)")
+    print("REGULARIZED MODEL  (Augmentation+ColorJitter + BatchNorm + Dropout p=0.3 + WD 1e-3)")
     print("=" * 70)
     torch.manual_seed(42)
     reg_model = DeepNetwork(input_dim, num_classes, hidden_dims,
@@ -282,10 +307,12 @@ def main():
 
     reg_optim = torch.optim.SGD(
         reg_model.parameters(), lr=lr, momentum=momentum, weight_decay=1e-3)
+    reg_sched = torch.optim.lr_scheduler.StepLR(reg_optim, step_size=15, gamma=0.5)
 
     reg_hist = train_model(
         reg_model, train_loader_aug, val_loader, criterion, reg_optim,
-        num_epochs, device)
+        num_epochs, device, scheduler=reg_sched,
+        train_eval_loader=train_eval_loader)
 
     _, reg_test = evaluate(reg_model, test_loader, criterion, device)
     print(f"\n  -> Regularized test accuracy: {reg_test:.4f}")
@@ -310,6 +337,7 @@ def main():
             'weight_decay':    1e-3,
             'use_batchnorm':   True,
             'use_augmentation': True,
+            'lr_scheduler':    'StepLR(step_size=15, gamma=0.5)',
         },
     }
     with open('training_history.json', 'w') as f:
