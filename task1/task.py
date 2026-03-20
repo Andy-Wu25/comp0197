@@ -200,93 +200,70 @@ def print_technical_analysis(history):
 TECHNICAL ANALYSIS — THE DYNAMICS OF GENERALIZATION
 ================================================================================
 
-1. GENERALIZATION GAP
+1. THE GENERALIZATION GAP
 
-The generalization gap — the difference between training and validation accuracy
-— quantifies overfitting. Our baseline model, a 6-layer MLP ({hdims},
-{nparams_bl:,} parameters) with no explicit regularization, reaches {bl_tr:.1%}
-training accuracy but only {bl_va:.1%} validation accuracy (gap = {bl_gap:.1%}).
-Although the universal approximation theorem (Lecture 1) guarantees that even a
-single hidden layer can approximate any function, depth enables more efficient
-compositional feature learning — our 6-layer funnel architecture exploits this,
-but the resulting capacity also enables severe overfitting when unconstrained,
-placing the baseline firmly in the high-variance regime (Lecture 4).
+Our baseline is a 6-layer MLP ({hdims}, {nparams_bl:,} parameters) trained with
+no explicit regularization. It reaches {bl_tr:.1%} training accuracy but only
+{bl_va:.1%} validation accuracy — a gap of {bl_gap:.1%}. This is textbook
+overfitting: the model has enough capacity to memorise the training set but 
+the learned function does not transfer to unseen data.
 
-The regularized model ({nparams_rg:,} parameters including BatchNorm) employing
-data augmentation, BatchNorm, Dropout (p=0.3), and L2 weight decay (lambda=1e-3)
-achieves
-{rg_tr:.1%} training / {rg_va:.1%} validation accuracy
-(gap = {rg_gap:.1%}). Test-set results: baseline {bl_te:.1%} vs regularized
-{rg_te:.1%}. We maintain strict train/validation/test separation to avoid data
-leakage (Lecture 6).
+The regularized model ({nparams_rg:,} parameters) applies data augmentation,
+BatchNorm, Dropout, and weight decay. It achieves {rg_tr:.1%} train / {rg_va:.1%}
+val (gap = {rg_gap:.1%}). Test accuracy: baseline {bl_te:.1%} vs regularized
+{rg_te:.1%}. Train/val/test splits are strictly separate.
 
-2. IMPLICIT REGULARIZATION VIA OPTIMIZER CHOICE
+2. IMPLICIT REGULARIZATION VIA THE OPTIMIZER
 
-Both models use SGD with momentum (beta={c['momentum']}), mini-batch size
-{c['batch_size']}, and a StepLR learning rate schedule that halves the rate
-every 15 epochs (Lecture 2: adaptive learning rates). Mini-batch SGD provides
-implicit regularization through gradient noise (Lecture 2). At each step the
-gradient is estimated from a random subset, injecting noise that biases the
-optimizer toward flat minima — regions where loss varies slowly under parameter
-perturbation — which are empirically associated with better generalization.
-The learning rate decay progressively reduces the step size, allowing the
-optimizer to settle into a minimum rather than oscillating. Momentum smooths
-the trajectory while preserving stochastic exploration. Even the baseline
-benefits; full-batch gradient descent would overfit more severely.
+Both models use mini-batch SGD with momentum {c['momentum']} and batch size
+{c['batch_size']}. Mini-batch SGD estimates gradients from a random subset of
+the data, injecting noise into each update. This noise biases the optimizer toward 
+flat minima (regions where the loss surface varies slowly under small parameter 
+perturbations) which tend to generalise better than sharp minima. Even the baseline 
+benefits from this as full-batch gradient descent would overfit more severely.
 
-3. EXPLICIT REGULARIZATION TECHNIQUES
+We apply a StepLR schedule that halves the learning rate every 15 epochs. This lets 
+the optimizer take large steps early for fast progress, then smaller steps to settle 
+into a minimum rather than oscillating around it. The baseline's validation loss keeps 
+rising after epoch 15 (1.66 to 4.55 by epoch 50), confirming that implicit regularization 
+alone cannot control overfitting in a high-capacity network.
 
-Data Augmentation (Lecture 4, Lecture 6 "no harm tricks"): The regularized model
-trains on augmented images using RandomCrop (padding=4), RandomHorizontalFlip,
-and ColorJitter (brightness/contrast/saturation=0.2). These expand the effective
-training set by synthesising translated, reflected, and colour-perturbed copies
-(Lecture 4: colour/intensity space transforms), reducing variance without
-increasing model complexity. Training accuracy is evaluated on clean
-(non-augmented) data to give an accurate generalization gap measurement.
+3. HYPERPARAMETER JUSTIFICATION
 
-BatchNorm (Lecture 4, slides 17-18): Normalises each hidden layer's activations
-to zero mean and unit variance within each mini-batch, then applies a learnable
-affine transform. This introduces stochastic noise through batch statistics,
-acting as an implicit regulariser. It also stabilises gradient flow through our
-6-layer network and is recommended as a "no harm trick" (Lecture 6).
+Architecture [{hdims}]: A funnel topology that progressively compresses
+representations across 6 layers. Depth enables compositional feature learning
+while the narrowing forces the network to distil information.
 
-Dropout p={c['dropout_rate']} (Lecture 4): Randomly zeros {int(c['dropout_rate']*100)}%
-of hidden activations, preventing feature co-adaptation. Dropout approximates an
-ensemble of exponentially many sub-networks, reducing variance through model
-averaging. At inference, all units are active with appropriately scaled outputs.
+Data augmentation: RandomCrop with 4px padding, RandomHorizontalFlip, and ColorJitter (0.2) 
+applyspatial and colour perturbations, expanding the effective training distribution. 
+Training accuracy is measured on clean data for an honest gap measurement.
 
-Weight decay lambda={c['weight_decay']} (Lecture 4): Adds lambda*||w||^2 to the
-loss, penalising large weights and favouring smoother decision boundaries.
-L2 gradient scales with w, so weights shrink without reaching exactly zero — the
-network retains all features at reduced magnitude.
+BatchNorm : Normalises activations to zero mean and unit variance
+within each mini-batch, then applies a learned affine transform. This stabilises
+gradient flow through our 6 layers and introduces stochastic noise via batch
+statistics, acting as implicit regularization.
 
-4. HYPERPARAMETER JUSTIFICATION
+Dropout p={c['dropout_rate']}: Randomly zeros {int(c['dropout_rate']*100)}% of activations
+each forward pass. This prevents co-adaptation and approximates an ensemble of
+sub-networks, reducing variance.
 
-* Architecture [{hdims}]: funnel topology through 6 linear layers, encouraging
-  hierarchical feature abstraction (Lecture 1). Appropriate weight
-  initialization maintains stable gradient flow (Lecture 2).
-* LR {c['lr']} + momentum {c['momentum']} + StepLR (step=15, gamma=0.5):
-  standard SGD configuration with learning rate decay for stable convergence
-  (Lecture 2). The schedule reduces the LR at epochs 15 and 30, refining
-  optimisation as training progresses.
-* Batch size {c['batch_size']}: sufficient gradient noise for implicit
-  regularization while keeping variance manageable (Lecture 2).
+Weight decay {c['weight_decay']} : Adds lambda*||w||^2 to the loss.
+The L2 gradient scales with w, so weights shrink toward zero without becoming
+exactly sparse — favouring smoother decision boundaries.
 
-5. BIAS-VARIANCE TRADE-OFF
+LR={c['lr']}, momentum={c['momentum']}, batch size={c['batch_size']}: Standard
+SGD settings. The batch size is small enough to maintain gradient noise for
+regularization but large enough for stable training.
 
-The baseline operates in the low-bias, high-variance regime: it fits training
-data well but generalises poorly (Lecture 4). Data augmentation, BatchNorm,
-Dropout, and weight decay constrain effective capacity, shifting toward higher
-bias and substantially lower variance. The validation improvement ({rg_va:.1%} vs {bl_va:.1%}) confirms
-that variance reduction outweighs the bias increase, yielding a more favourable
-total error at the optimal operating point on the bias-variance curve.
+4. BIAS-VARIANCE TRADE-OFF
 
-================================================================================
-GenAI Correction: Claude initially suggested omitting model.eval() in the
-per-epoch validation loop. This would have left Dropout active during
-validation, making the regularized model's validation accuracy artificially
-low and the gap comparison misleading. The error was caught and corrected.
-================================================================================
+The baseline sits in the high-variance regime: {bl_tr:.1%} train vs {bl_va:.1%}
+val shows it fits noise in the training set rather than the underlying pattern.
+Each regularization technique constrains effective capacity, trading some ability
+to fit training data (higher bias) for much lower sensitivity to the specific training
+sample (lower variance). The result — {rg_va:.1%} val vs {bl_va:.1%} — confirms the variance
+reduction more than compensates for the bias increase, moving the model closer to
+the optimal point on the bias-variance curve.
 """
     print(text)
 

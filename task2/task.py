@@ -10,11 +10,9 @@ technical justification comparing both models.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring and Pillow-based
-visualisation. One specific correction: Claude
-initially applied label smoothing only to hard targets, whereas the correct
-approach applies smoothing on top of MixUp's already-soft labels during
-training, ensuring both regularisation techniques compose correctly.
+Claude was used as an assistive tool for code structuring and Pillow-based
+visualisation. All code implemented by Claude was reviewed, tested, and edited
+by the author to ensure correctness.
 """
 
 import torch
@@ -215,7 +213,6 @@ def print_technical_analysis(bl_clean, mx_clean, bl_noisy, mx_noisy, config):
     table = "\n".join(table_lines)
 
     eps = config['epsilon']
-    # Finite optimal logit: z* = log((1-eps+eps/K) / (eps/K))
     target_correct = 1.0 - eps + eps / 10.0
     target_other = eps / 10.0
     optimal_logit = torch.tensor(target_correct / target_other).log().item()
@@ -227,100 +224,68 @@ TECHNICAL JUSTIFICATION — MIXUP AND LABEL SMOOTHING FOR ROBUSTNESS
 
 1. WHY MIXUP PREVENTS MEMORISATION
 
-Standard empirical risk minimisation (ERM) minimises the expected loss under the
-training data distribution p_data(x, y) = (1/M) * sum delta(x = x_m, y = y_m),
-which places all probability mass on individual training samples (Lecture 4: data
-resampling). A high-capacity network can drive the training loss to zero by
-memorising each sample, producing sharp, oscillating decision boundaries that
-generalise poorly.
+Standard training minimises the empirical risk over the training distribution
+p_data(x,y) = (1/M) sum delta(x=x_m, y=y_m), which places all probability mass
+on individual samples. A high-capacity network can drive this loss to zero by 
+memorising each sample, producing sharp decision boundaries that do not generalise.
 
-MixUp replaces ERM with vicinal risk minimisation (VRM), where the vicinity
-distribution blends training pairs (Lecture 4: mixup regularisation):
+MixUp replaces this with vicinal risk minimisation, where the training distribution 
+is replaced by a vicinity distribution that blends pairs:
     x_tilde = lambda * x_i + (1 - lambda) * x_j
     y_tilde = lambda * y_i + (1 - lambda) * y_j
 with lambda ~ Beta({config['alpha']}, {config['alpha']}).
 
-This prevents memorisation through three mechanisms. First, it generates
-synthetic training points between existing samples, expanding the support of the
-training distribution. A model that memorises individual samples cannot produce
-coherent predictions at these intermediate points, so memorisation is directly
-penalised. Second, the linear label blending incentivises predictions that vary
-linearly between training samples, encouraging smooth, low-complexity decision
-boundaries — a direct reduction of model variance (Lecture 4: complexity).
-Third, the stochastic lambda sampling creates a combinatorially larger set of
-virtual examples at every epoch, preventing overfitting to any fixed dataset
-(Lecture 4: affinity and diversity).
+This prevents memorisation because a model that has memorised individual samples
+cannot produce coherent predictions at the interpolated points between them.
+The linear label blending forces predictions to vary smoothly between training
+examples, encouraging low-complexity decision boundaries. The stochastic lambda 
+sampling also creates a combinatorially larger set of virtual training examples each epoch,
+making it much harder to overfit to any fixed set of inputs.
 
-Our implementation samples one lambda per batch from Beta({config['alpha']},
-{config['alpha']}), following the original MixUp paper. Pairs are formed via
-random permutation, and both inputs and one-hot labels are blended using basic
-tensor operations (scatter_ for one-hot encoding, element-wise arithmetic).
+Our implementation samples one lambda per batch, pairs are formed by random
+permutation, and both images and one-hot labels are blended using basic tensor
+operations (scatter_ for one-hot encoding, element-wise arithmetic).
 
 2. HOW LABEL SMOOTHING PREVENTS OVERSHOOTING
 
-With hard one-hot targets, minimising cross-entropy requires pushing the correct-
-class logit toward +infinity. This drives overconfident predictions and causes
-gradient saturation — the loss landscape becomes flat and updates become
-negligibly small (Lecture 4: label smoothing under randomness).
+With hard one-hot targets, cross-entropy loss is minimised by pushing the
+correct-class logit toward +infinity. This causes gradient saturation — updates
+become negligibly small as the loss landscape flattens.
 
-Our Label Smoothing converts hard targets to soft targets:
+Label Smoothing replaces hard targets with soft targets:
     y_smooth = (1 - epsilon) * y + epsilon / K
-where epsilon = {eps} and K = 10. The correct class receives a target of
-{target_correct:.3f} instead of 1.0. Crucially, the optimal logit is now FINITE:
-z* = log((1-eps+eps/K) / (eps/K)) = {optimal_logit:.2f}. Consequently:
+where epsilon = {eps} and K = 10. The correct class target becomes
+{target_correct:.3f} instead of 1.0. The key consequence is that the optimal
+logit is now finite: z* = log((1-eps+eps/K) / (eps/K)) = {optimal_logit:.2f}.
+The optimizer no longer needs to push weights to extreme values, so gradients
+remain informative throughout training. The resulting predictions are also better
+calibrated. This is shown when allocating some probability to incorrect classes reflects genuine
+uncertainty, acting as output regularisation that complements MixUp's input-space regularisation.
 
-(a) Gradients remain informative throughout training — the optimizer never needs
-    to push weights to extreme values, preventing numerical instability.
-(b) Predicted distributions are better calibrated — allocating some probability
-    to incorrect classes reflects genuine uncertainty, acting as output
-    regularisation (Lecture 4: randomness as regularisation) that complements
-    MixUp's input-space regularisation.
-
-The log-softmax is computed from scratch with the max-subtraction trick for
-numerical stability, and the final loss is the negative dot product of smoothed
+Our loss function computes log-softmax from scratch using the max-subtraction
+trick for numerical stability, then takes the negative dot product of smoothed
 targets with log-probabilities, averaged over the batch.
 
-3. QUANTITATIVE ROBUSTNESS RESULTS
+3. QUANTITATIVE RESULTS
 
     Noise Std    Baseline       MixUp+LS
     ─────────────────────────────────────
     clean        {bl_clean:.1%}          {mx_clean:.1%}
 {table}
 
-The MixUp+LS model achieves {mx_clean:.1%} clean accuracy vs the baseline's
-{bl_clean:.1%}, confirming that MixUp's vicinal risk minimisation and Label
-Smoothing's soft targets improve generalisation. At low noise intensities
-(sigma <= 0.10), MixUp+LS retains its accuracy advantage: the smoother decision
-boundaries learned through vicinal training are less sensitive to small input
-perturbations. However, at higher noise (sigma >= 0.20), the baseline degrades
-more gracefully. This is an expected consequence of the bias-variance trade-off
-(Lecture 4): Label Smoothing distributes probability mass across all classes,
-producing well-calibrated but less peaky predictions. Under severe noise, these
-flatter softmax distributions are more easily disrupted — a small shift in logit
-space is more likely to change the argmax when classes have similar probabilities.
-The baseline's overconfident (high-variance) predictions, while poorly calibrated,
-produce sharper peaks that are more resistant to random perturbation. Additionally,
-with alpha = {config['alpha']}, the Beta({config['alpha']}, {config['alpha']})
-distribution is U-shaped, producing lambdas concentrated near 0 and 1, so the
-effective MixUp regularisation is mild — the model still learns sharp features
-that are vulnerable to large noise.
+MixUp+LS achieves {mx_clean:.1%} clean accuracy vs {bl_clean:.1%} for the
+baseline, and retains an advantage at mild noise (sigma <= 0.10). At higher
+noise (sigma >= 0.20) the baseline degrades more gracefully. This is because
+Label Smoothing produces flatter softmax distributions — at extreme noise levels,
+a small shift in logit space is more likely to flip the argmax when class
+probabilities are closer together. The baseline's overconfident but sharper peaks
+are more resistant to random perturbation, even though they are poorly calibrated.
+With alpha={config['alpha']}, Beta({config['alpha']},{config['alpha']}) is
+U-shaped (most lambdas near 0 or 1), so the MixUp regularisation is mild.
 
-This illustrates a fundamental tension: the same smoothing that improves
-generalisation and calibration can reduce robustness to extreme input corruption.
-Increasing alpha would produce more aggressive blending and potentially improve
-high-noise robustness, but at the cost of clean accuracy.
-
-Together with early stopping (patience = {config['patience']}), which halts
-training when validation loss increases (Lecture 4: early stopping), a StepLR
-learning rate schedule that halves the rate every 20 epochs (Lecture 2:
-adaptive learning rates) for stable convergence, and gradient clipping
-(max_norm = {config.get('grad_clip', 5.0)}) to prevent gradient explosions,
-these techniques shift the model toward a balanced position on the bias-variance
-curve — improving generalisation on clean and mildly-corrupted data while
-accepting a trade-off at extreme noise levels.
-
-GenAI Usage: Claude assisted with code structure and drafting. All
-from-scratch implementations and theoretical claims were verified by the author.
+Early stopping (patience={config['patience']}) halts training when validation
+loss stops improving. A StepLR schedule halves the learning rate every 20 epochs 
+for stable convergence.
 """
     print(text)
 
