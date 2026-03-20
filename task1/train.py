@@ -8,12 +8,9 @@ trains both, and saves model weights and per-epoch training history.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring, Pillow-based
-plotting, and drafting the technical analysis. All model design decisions,
-hyperparameter choices, and theoretical content were verified by the author
-against the COMP0197 lecture material. One specific correction: Claude initially
-omitted model.eval() during per-epoch validation, which would have left dropout
-active and artificially depressed the regularized model's validation accuracy.
+Claude was used as an assistive tool for code and terminal output structuring 
+and Pillow-based visualisation. All code implemented by Claude was reviewed, 
+tested, and edited by the author to ensure correctness.
 """
 
 import torch
@@ -148,7 +145,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                                                    Default: None.
         train_eval_loader (DataLoader, optional): Clean (non-augmented) loader
                          over training set for accurate train accuracy
-                         measurement.  If None, uses in-loop metrics.
+                         measurement.
 
     Returns:
         dict: Keys 'train_loss', 'train_acc', 'val_loss', 'val_acc',

@@ -10,9 +10,9 @@ technical justification comparing both models.
 
 GenAI Usage Statement
 ---------------------
-Claude was used as an assistive tool for code structuring and Pillow-based
-visualisation. All code implemented by Claude was reviewed, tested, and edited
-by the author to ensure correctness.
+Claude was used as an assistive tool for code and terminal output structuring 
+and Pillow-based visualisation. All code implemented by Claude was reviewed, 
+tested, and edited by the author to ensure correctness.
 """
 
 import torch
@@ -219,10 +219,10 @@ def print_technical_analysis(bl_clean, mx_clean, bl_noisy, mx_noisy, config):
 
     text = f"""\
 ================================================================================
-TECHNICAL JUSTIFICATION — MIXUP AND LABEL SMOOTHING FOR ROBUSTNESS
+Technical Justification — MixUp and label smoothing for robustness
 ================================================================================
 
-1. WHY MIXUP PREVENTS MEMORISATION
+1. Why MixUp prevents memorisation
 
 Standard training minimises the empirical risk over the training distribution
 p_data(x,y) = (1/M) sum delta(x=x_m, y=y_m), which places all probability mass
@@ -238,7 +238,7 @@ with lambda ~ Beta({config['alpha']}, {config['alpha']}).
 This prevents memorisation because a model that has memorised individual samples
 cannot produce coherent predictions at the interpolated points between them.
 The linear label blending forces predictions to vary smoothly between training
-examples, encouraging low-complexity decision boundaries. The stochastic lambda 
+examples, encouraging low-complexity decision boundaries. Additionally, the stochastic lambda
 sampling also creates a combinatorially larger set of virtual training examples each epoch,
 making it much harder to overfit to any fixed set of inputs.
 
@@ -246,10 +246,10 @@ Our implementation samples one lambda per batch, pairs are formed by random
 permutation, and both images and one-hot labels are blended using basic tensor
 operations (scatter_ for one-hot encoding, element-wise arithmetic).
 
-2. HOW LABEL SMOOTHING PREVENTS OVERSHOOTING
+2. How Label Smoothing Prevents Overshooting
 
 With hard one-hot targets, cross-entropy loss is minimised by pushing the
-correct-class logit toward +infinity. This causes gradient saturation — updates
+correct-class logit toward +infinity. This causes gradient saturation where updates
 become negligibly small as the loss landscape flattens.
 
 Label Smoothing replaces hard targets with soft targets:
@@ -257,16 +257,16 @@ Label Smoothing replaces hard targets with soft targets:
 where epsilon = {eps} and K = 10. The correct class target becomes
 {target_correct:.3f} instead of 1.0. The key consequence is that the optimal
 logit is now finite: z* = log((1-eps+eps/K) / (eps/K)) = {optimal_logit:.2f}.
-The optimizer no longer needs to push weights to extreme values, so gradients
+The optimiser no longer needs to push weights to extreme values, allowing gradients to 
 remain informative throughout training. The resulting predictions are also better
-calibrated. This is shown when allocating some probability to incorrect classes reflects genuine
+calibrated. Allocating some probability to incorrect classes shows realistic
 uncertainty, acting as output regularisation that complements MixUp's input-space regularisation.
 
 Our loss function computes log-softmax from scratch using the max-subtraction
-trick for numerical stability, then takes the negative dot product of smoothed
-targets with log-probabilities, averaged over the batch.
+trick for numerical stability. Then, we takes the negative dot product of smoothed
+targets with log-probabilities which is averaged over the batch.
 
-3. QUANTITATIVE RESULTS
+3. Quantitative results
 
     Noise Std    Baseline       MixUp+LS
     ─────────────────────────────────────
@@ -274,9 +274,9 @@ targets with log-probabilities, averaged over the batch.
 {table}
 
 MixUp+LS achieves {mx_clean:.1%} clean accuracy vs {bl_clean:.1%} for the
-baseline, and retains an advantage at mild noise (sigma <= 0.10). At higher
+baseline and retains an advantage at mild noise (sigma <= 0.10). At higher
 noise (sigma >= 0.20) the baseline degrades more gracefully. This is because
-Label Smoothing produces flatter softmax distributions — at extreme noise levels,
+Label Smoothing produces flatter softmax distributions. At extreme noise levels,
 a small shift in logit space is more likely to flip the argmax when class
 probabilities are closer together. The baseline's overconfident but sharper peaks
 are more resistant to random perturbation, even though they are poorly calibrated.

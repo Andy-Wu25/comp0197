@@ -10,8 +10,9 @@ regularization through optimizer choice, and the bias-variance trade-off.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring and Pillow-based
-plotting. All code was reviewed, tested, and verified by the author.
+Claude was used as an assistive tool for code and terminal output structuring 
+and Pillow-based visualisation. All code implemented by Claude was reviewed, 
+tested, and edited by the author to ensure correctness.
 """
 
 import torch
@@ -197,23 +198,23 @@ def print_technical_analysis(history):
 
     text = f"""\
 ================================================================================
-TECHNICAL ANALYSIS — THE DYNAMICS OF GENERALIZATION
+Technical Justification — The Dynamics of Generalization
 ================================================================================
 
-1. THE GENERALIZATION GAP
+1. The Generalization Gap
 
 Our baseline is a 6-layer MLP ({hdims}, {nparams_bl:,} parameters) trained with
 no explicit regularization. It reaches {bl_tr:.1%} training accuracy but only
-{bl_va:.1%} validation accuracy — a gap of {bl_gap:.1%}. This is textbook
-overfitting: the model has enough capacity to memorise the training set but 
+{bl_va:.1%} validation accuracy, having a gap of {bl_gap:.1%}. This shows
+overfitting where the model has enough capacity to memorise the training set but 
 the learned function does not transfer to unseen data.
 
-The regularized model ({nparams_rg:,} parameters) applies data augmentation,
+The regularised model ({nparams_rg:,} parameters) applies data augmentation,
 BatchNorm, Dropout, and weight decay. It achieves {rg_tr:.1%} train / {rg_va:.1%}
-val (gap = {rg_gap:.1%}). Test accuracy: baseline {bl_te:.1%} vs regularized
+val (gap = {rg_gap:.1%}). Test accuracy: baseline {bl_te:.1%} vs regularised
 {rg_te:.1%}. Train/val/test splits are strictly separate.
 
-2. IMPLICIT REGULARIZATION VIA THE OPTIMIZER
+2. Implicit regularization via the optimizer
 
 Both models use mini-batch SGD with momentum {c['momentum']} and batch size
 {c['batch_size']}. Mini-batch SGD estimates gradients from a random subset of
@@ -228,17 +229,17 @@ into a minimum rather than oscillating around it. The baseline's validation loss
 rising after epoch 15 (1.66 to 4.55 by epoch 50), confirming that implicit regularization 
 alone cannot control overfitting in a high-capacity network.
 
-3. HYPERPARAMETER JUSTIFICATION
+3. Hyperparameter Justification
 
 Architecture [{hdims}]: A funnel topology that progressively compresses
 representations across 6 layers. Depth enables compositional feature learning
 while the narrowing forces the network to distil information.
 
-Data augmentation: RandomCrop with 4px padding, RandomHorizontalFlip, and ColorJitter (0.2) 
-applyspatial and colour perturbations, expanding the effective training distribution. 
+Data augmentation: RandomCrop with 4px padding, RandomHorizontalFlip, and ColorJitter (0.2)
+apply spatial and colour perturbations, expanding the effective training distribution.
 Training accuracy is measured on clean data for an honest gap measurement.
 
-BatchNorm : Normalises activations to zero mean and unit variance
+BatchNorm: Normalises activations to zero mean and unit variance
 within each mini-batch, then applies a learned affine transform. This stabilises
 gradient flow through our 6 layers and introduces stochastic noise via batch
 statistics, acting as implicit regularization.
@@ -247,7 +248,7 @@ Dropout p={c['dropout_rate']}: Randomly zeros {int(c['dropout_rate']*100)}% of a
 each forward pass. This prevents co-adaptation and approximates an ensemble of
 sub-networks, reducing variance.
 
-Weight decay {c['weight_decay']} : Adds lambda*||w||^2 to the loss.
+Weight decay {c['weight_decay']}: Adds lambda*||w||^2 to the loss.
 The L2 gradient scales with w, so weights shrink toward zero without becoming
 exactly sparse — favouring smoother decision boundaries.
 
@@ -255,7 +256,7 @@ LR={c['lr']}, momentum={c['momentum']}, batch size={c['batch_size']}: Standard
 SGD settings. The batch size is small enough to maintain gradient noise for
 regularization but large enough for stable training.
 
-4. BIAS-VARIANCE TRADE-OFF
+4. Bias-Variance Trade-off
 
 The baseline sits in the high-variance regime: {bl_tr:.1%} train vs {bl_va:.1%}
 val shows it fits noise in the training set rather than the underlying pattern.

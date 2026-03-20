@@ -10,10 +10,9 @@ stopping, and saves both models.
 
 GenAI Usage Statement
 ---------------------
-Claude was used to assist with code structuring. One specific correction: 
-Claude initially applied label smoothing only to hard targets, whereas the 
-correct approach applies smoothing on top of MixUp's already-soft labels 
-during training, ensuring both regularisation techniques compose correctly.
+Claude was used as an assistive tool for code and terminal output structuring 
+and Pillow-based visualisation. All code implemented by Claude was reviewed, 
+tested, and edited by the author to ensure correctness.
 """
 
 import torch
@@ -176,11 +175,6 @@ def label_smoothing_cross_entropy(logits, targets, epsilon=0.1):
     loss = -(smooth_targets * log_probs).sum(dim=1).mean()
 
     return loss
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Training utilities
-# ──────────────────────────────────────────────────────────────────────────────
 
 def evaluate(model, loader, criterion, device):
     """Compute average loss and accuracy on a dataset.
